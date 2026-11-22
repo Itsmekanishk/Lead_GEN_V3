@@ -4,7 +4,7 @@
 # runtime configuration as a local `wrangler pages dev` run. Verified: without
 # nodejs_compat the generated _worker.js throws at runtime, because the Next.js
 # edge bundle imports node:buffer and node:async_hooks.
-name = "locallead"
+name = "lead-gen-v3"
 pages_build_output_dir = ".vercel/output/static"
 compatibility_date = "2026-05-03"
 compatibility_flags = ["nodejs_compat"]
