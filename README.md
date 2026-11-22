@@ -1,63 +1,193 @@
-# LocalLead Intelligence — Developer Handoff
+<div align="center">
 
-**Commercial lead-generation platform**: search businesses by industry and
-location, enrich them with public website contact data, and export branded
-PDF / CSV / Excel reports.
+# LocalLead Intelligence
 
-> Example: `Hospitals in Porwal Road Pune` → 67 businesses, 61 phones,
-> 52 websites, 39 emails (32 high-confidence) → branded PDF report.
+**Find businesses by industry and location, enrich them with verified public contact data, and export branded reports — with provenance for every email and phone.**
 
-This README is written for **the developer taking this project to production**.
-Read sections 1–3 before your first deploy; they cover setup, secrets, and the
-run commands. Everything else is reference.
+`Hospitals in Porwal Road, Pune` → 67 businesses · 61 phones · 52 websites · 39 emails (32 high confidence) → PDF / CSV / Excel
 
-> 📖 **Full System & Concepts Documentation**: For an in-depth breakdown of all concepts, architecture diagrams, background pipeline stages, deduplication, SSRF security, and website user journeys, see [**`PROJECT_EXPLANATION.md`**](PROJECT_EXPLANATION.md).
-> 🚀 **Hostinger VPS Deployment Guide**: To host this on a Hostinger VPS with 100% free open-source APIs (and switch to Google Maps API later), see [**`docs/HOSTINGER_DEPLOYMENT.md`**](docs/HOSTINGER_DEPLOYMENT.md).
+[![License: MIT](https://img.shields.io/badge/license-MIT-2ea44f.svg)](LICENSE)
+[![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-3776ab.svg)](https://www.python.org/)
+[![FastAPI](https://img.shields.io/badge/FastAPI-0.110%2B-009688.svg)](https://fastapi.tiangolo.com/)
+[![Next.js 14](https://img.shields.io/badge/Next.js-14-000000.svg)](https://nextjs.org/)
+[![PostgreSQL 16](https://img.shields.io/badge/PostgreSQL-16-336791.svg)](https://www.postgresql.org/)
+[![Docker](https://img.shields.io/badge/Docker-Compose-2496ed.svg)](https://docs.docker.com/compose/)
+
+</div>
 
 ---
 
 ## Table of contents
 
-1. [Prerequisites](#1-prerequisites)
-2. [First-run setup (5 minutes)](#2-first-run-setup-5-minutes)
-3. [Environment variables (`.env`)](#3-environment-variables-env)
-4. [Running in development](#4-running-in-development)
-5. [Running in production (Docker)](#5-running-in-production-docker)
-6. [Enabling real data (Google Places / Serper)](#6-enabling-real-data-google-places--serper)
-7. [Tests](#7-tests)
-8. [Requested-vs-available data logic](#8-requested-vs-available-data-logic)
-9. [Error handling & failure behavior](#9-error-handling--failure-behavior)
-10. [Security notes for production](#10-security-notes-for-production)
-11. [Repo layout & further docs](#11-repo-layout--further-docs)
-12. [Open-source leadgen engine (`leadgen/`)](#12-open-source-leadgen-engine-leadgen)
+- [What this is](#what-this-is)
+- [Why it is built this way](#why-it-is-built-this-way)
+- [Feature set](#feature-set)
+- [Architecture](#architecture)
+- [Repository layout](#repository-layout)
+- [Quick start (5 minutes, no API keys)](#quick-start-5-minutes-no-api-keys)
+- [Local development without Docker](#local-development-without-docker)
+- [Configuration](#configuration)
+- [Data providers](#data-providers)
+- [API surface](#api-surface)
+- [Live progress in the UI](#live-progress-in-the-ui)
+- [Exports](#exports)
+- [Testing](#testing)
+- [Deployment](#deployment)
+- [Operations](#operations)
+- [Security posture](#security-posture)
+- [Troubleshooting](#troubleshooting)
+- [Known limitations](#known-limitations)
+- [The standalone `leadgen/` engine](#the-standalone-leadgen-engine)
+- [Documentation map](#documentation-map)
+- [Contributing](#contributing)
+- [License](#license)
 
 ---
 
-## 1. Prerequisites
+## What this is
 
-| Tool | Version | Needed for |
+LocalLead Intelligence is a self-hosted lead-generation platform for small sales and research teams. A user describes what they want in plain language — *"Dental clinics in Kharadi Pune"* — and the platform:
+
+1. **Parses** the request into a category and a location (with a confidence score).
+2. **Discovers** matching businesses through an official data provider.
+3. **Enriches** each business by politely crawling its own public website for contact details.
+4. **Extracts** emails and phones with provenance, source URL and a confidence tier.
+5. **De-duplicates** near-identical records across the result set.
+6. **Streams** every stage to the browser live, then **exports** PDF, CSV or Excel.
+
+It ships with a zero-key mock provider so the entire product can be run and demonstrated offline, and it defaults to OpenStreetMap (Nominatim) for genuinely free, keyless real data.
+
+**Who it is for:** a team that needs its own lead pipeline with data it can audit — every contact row points at the page it came from — rather than a black-box scraper.
+
+---
+
+## Why it is built this way
+
+These are product constraints, not implementation details. They explain most of the code:
+
+| Principle | What it means in practice |
+|---|---|
+| **Official sources only** | Business discovery uses the Google Places API (New), Geoapify, Serper, or OpenStreetMap — never scraped search-engine results or marketplaces. |
+| **Provenance over volume** | Every email/phone stores `source`, `source_url`, `confidence` and `discovered_at`. Nothing is guessed or generated. |
+| **Polite by default** | robots.txt honoured, honest User-Agent, ≥2 s between requests to the same domain, page and byte caps, per-business failure isolation. |
+| **Honest reporting** | If you ask for 100 leads and only 45 exist, the UI says exactly that — it never pads a result set. |
+| **Never a blank screen** | Provider outages, dead websites and render failures degrade into visible, recoverable states (banners, retry cards), never a white page. |
+| **Secrets stay out of git** | Configuration is environment-only, validated at boot, and redacted from logs. |
+
+---
+
+## Feature set
+
+| Area | Capabilities |
+|---|---|
+| **Discovery** | Natural-language or structured queries, radius/country/language filters, per-search provider choice, automatic fallback chain |
+| **Enrichment** | Parallel website crawl (homepage → contact/about), email extraction (mailto + text), phone normalization to E.164, disposable-email detection |
+| **Quality** | Confidence tiers (HIGH/MEDIUM/LOW), duplicate resolution by normalized website/phone plus fuzzy name+address, per-contact source URLs |
+| **Live UX** | SSE progress stream with polling fallback, stage-by-stage pipeline view, a persistent header loader that survives navigation |
+| **Data** | Filterable, sortable results table, per-business detail with crawl pages, summary counters |
+| **Exports** | Branded PDF, CSV and Excel with formula-injection neutralization and ownership-checked, UUID-named downloads |
+| **Accounts** | Argon2 passwords, JWT access + rotating refresh tokens with reuse detection, ADMIN/USER roles, password reset |
+| **Admin** | All users' jobs, user management, provider keys, provider usage and estimated cost, audit log |
+| **Ops** | `/api/health` covering DB, Redis, worker and provider; structured JSON logs with secret redaction; Alembic migrations; Docker healthchecks |
+
+---
+
+## Architecture
+
+```
+                        ┌──────────────────────────── Browser ───────────────────────────┐
+                        │  Next.js 14 (App Router, TS, Tailwind)                          │
+                        │  dashboard · results · history · settings · admin                │
+                        └───────────────┬──────────────────────────────┬──────────────────┘
+                                        │ /backend/* (proxy)           │ SSE /api/search/{id}/stream
+                                        ▼                              ▼
+                              ┌───────────────────┐          ┌────────────────────┐
+                              │  nginx (TLS/SSE)  │─────────▶│   FastAPI (uvicorn)│
+                              └───────────────────┘          └─────┬────────┬─────┘
+                                                                   │        │
+                                                     ┌─────────────▼──┐  ┌──▼──────────┐
+                                                     │ Redis (pub/sub │  │ PostgreSQL  │
+                                                     │ + Celery queue)│  │  (SQLAlchemy│
+                                                     └───────┬────────┘  │   + Alembic)│
+                                                             │           └──▲──────────┘
+                                                             ▼              │
+                                                     ┌──────────────────┐   │
+                                                     │  Celery worker    │───┘
+                                                     │  (pipeline)       │
+                                                     └───┬──────────┬────┘
+                                                         ▼          ▼
+                                              ┌────────────────┐  ┌────────────────────┐
+                                              │ Business       │  │ Business websites  │
+                                              │ provider API   │  │ (polite crawler)   │
+                                              └────────────────┘  └────────────────────┘
+```
+
+### Search pipeline
+
+| # | Status | What happens |
 |---|---|---|
-| **Docker + Docker Compose** | 24+ | production stack (recommended) |
-| **Python** | 3.11 or 3.12 | backend (local dev without Docker) |
-| **Node.js** | 18.17+ (20 LTS recommended) | frontend |
-| **PostgreSQL** | 14+ (16 recommended) | production datastore |
-| **Redis** | 7+ | job queue + live progress |
+| 1 | `discovering` | Query parsed → provider search with selective field masks |
+| 2 | `enriching` | Names/URLs/phones normalized, `businesses` rows persisted (unique per job + place id) |
+| 3 | `crawling` | Parallel website scans (default 4), homepage → contact/about, `MAX_PAGES_PER_DOMAIN` cap, robots.txt + per-domain rate limit |
+| 4 | `extracting` | Email/phone extraction with confidence, `business_contacts` + `crawl_pages` written |
+| 5 | `deduplicating` | Strong identifiers merge; name+address fuzzy matching; canonical row kept |
+| 6 | `completed` | Counters published; exports unlocked |
 
-Optional (only for local, non-Docker runs): a running Postgres + Redis, or
-nothing at all — the backend falls back to SQLite and mock mode.
+Terminal states are `completed`, `failed` and `cancelled`. Per-business failures (timeout, 403/404/429/5xx, DNS, SSL, malformed HTML) are recorded and isolated — one dead website never sinks a job.
 
-## 2. First-run setup (5 minutes)
+### Progress delivery
+
+Workers write state to PostgreSQL (durable) and publish to Redis `locallead:job_events` (live). `GET /api/search/{id}/stream` replays the last known state, subscribes for updates, and falls back to keep-alives plus database polling, so a missed event never strands the UI. The frontend consumes SSE in `useJobStream`, with polling as a fallback.
+
+---
+
+## Repository layout
+
+```
+.
+├── backend/                  FastAPI service
+│   ├── app/
+│   │   ├── api/              REST routers: auth, search, business, exports, admin, health
+│   │   ├── core/             config, security, startup checks, rate limiting, logging
+│   │   ├── crawlers/         polite crawler, robots.txt, per-domain limiter
+│   │   ├── exports/          PDF (ReportLab), CSV, Excel (openpyxl) writers
+│   │   ├── models/           SQLAlchemy models
+│   │   ├── providers/        provider interface + mock / google / serper / geoapify / nominatim
+│   │   ├── services/         query parser, dedup resolver, pipeline orchestration
+│   │   ├── utils/            SSRF guard, normalizers
+│   │   └── workers/          Celery app, pipeline stages, progress pub/sub, in-process dispatch
+│   ├── alembic/              migrations
+│   ├── scripts/              live E2E, cancellation and load harnesses
+│   └── tests/                14 test modules (unit, API, crawler, SSRF, exports, pipeline)
+├── frontend/                 Next.js 14 + TypeScript + Tailwind
+│   ├── app/                  routes: (app)/dashboard, (app)/results/[jobId], (app)/history,
+│   │                         (app)/settings, (app)/admin, register, forgot-password,
+│   │                         error.tsx, global-error.tsx
+│   ├── components/           UI primitives + active-search provider (header loader)
+│   ├── hooks/                useJobStream (SSE + polling fallback)
+│   └── lib/api.ts            typed API client: token refresh, friendly error mapping
+├── infrastructure/           backend/worker/frontend Dockerfiles, nginx (TLS, SSE-safe)
+├── cloudflare/               Workers + Containers deployment ($5/mo, whole app)
+├── deploy/                   $0 split: Cloudflare Pages frontend + Render API
+├── leadgen/                  standalone open-source lead-gen engine (CLI, MIT)
+├── docs/                     architecture, api, deployment, security, testing, crawler, troubleshooting
+├── docker-compose.yml        postgres · redis · api · worker · frontend · nginx
+├── .env.example              every configuration variable, annotated
+├── requirements.txt          standalone engine dependencies
+├── PROJECT_EXPLANATION.md    deep dive: concepts, journeys, data model
+└── run.sh                    run API + worker + web locally without Docker
+```
+
+---
+
+## Quick start (5 minutes, no API keys)
+
+**Prerequisites:** Docker Engine 24+ with Compose v2. Nothing else.
 
 ```bash
-# 1. Install dependencies
-cd backend  &&  pip install -r requirements.txt
-cd frontend &&  npm install
-
-# 2. Create your environment file
-cp .env.example .env
-#    → open .env and set at least SECRET_KEY (see next section)
-
-# 3. Start the full stack (no API keys needed — mock mode)
+git clone https://github.com/Itsmekanishk/Lead_GEN_V3.git
+cd Lead_GEN_V3
+cp .env.example .env          # defaults run entirely in mock mode
 docker compose up --build
 ```
 
@@ -65,77 +195,38 @@ docker compose up --build
 |---|---|
 | Web app (via nginx) | http://localhost:8080 |
 | Frontend (direct) | http://localhost:3000 |
-| API docs (OpenAPI) | http://localhost:8000/api/docs |
+| API docs (Swagger) | http://localhost:8000/api/docs |
 | Health check | http://localhost:8000/api/health |
 
-**First login:** open the app → **Create account**. The first registered user
-automatically becomes ADMIN.
+Open the app, **Create account** — the first registered user becomes **ADMIN** automatically. Run a search; mock mode needs no keys and completes in seconds.
 
-## 3. Environment variables (`.env`)
-
-> **Golden rule:** real secrets live **only** in `.env`, which is gitignored.
-> `.env.example` is the committed template and documents every variable.
-> Never hardcode keys in source files; never commit `.env`.
+Verify the stack is healthy:
 
 ```bash
-cp .env.example .env      # then edit .env
+curl -s http://localhost:8000/api/health | jq
+# {"status":"ok","app_env":"production",
+#  "checks":{"database":"ok","redis":"ok","workers":"ok","provider":"ok"}}
 ```
 
-### The variables that matter most
+> `workers: "no_workers"` is expected on single-process deployments (Render, Cloudflare Containers): the API then runs each search in-process instead of waiting for Celery.
 
-| Variable | Required? | Notes |
-|---|---|---|
-| `SECRET_KEY` | **Yes** | Signs JWTs. Generate: `openssl rand -hex 32`. Production **refuses to boot** with the placeholder value. |
-| `DATABASE_URL` | **Yes (prod)** | `postgresql+psycopg2://user:pass@host:5432/dbname` |
-| `REDIS_URL` | **Yes (prod)** | `redis://host:6379/0` |
-| `BUSINESS_PROVIDER` | Yes | `mock` (no keys needed) · `google` · `serper` |
-| `GOOGLE_MAPS_API_KEY` | if provider=google | Google Places API (New) key |
-| `SERPER_API_KEY` | if provider=serper | Key from https://serper.dev |
-| `CORS_ORIGINS` | **Yes (prod)** | Comma-separated allow-list of your frontend origins |
-| `SMTP_*` | optional | Needed only for password-reset emails |
+---
 
-The full annotated list lives in [`.env.example`](.env.example).
+## Local development without Docker
 
-### Startup validation (what happens if you forget one)
-
-The backend validates configuration at boot (`backend/app/core/startup_checks.py`):
-
-- **`APP_ENV=production`** — missing keys / placeholder `SECRET_KEY` /
-  unconfigured provider ⇒ **the server refuses to start** and prints exactly
-  which variable to set:
-  ```
-  RuntimeError: Refusing to start in production with missing configuration:
-    - BUSINESS_PROVIDER=google but GOOGLE_MAPS_API_KEY is missing. ...
-  ```
-- **Development** — the app still boots (mock mode needs no keys) and prints a
-  prominent banner naming the missing variable:
-  ```
-  ⚠  LocalLead configuration warnings
-  BUSINESS_PROVIDER=serper but SERPER_API_KEY is missing. Set it in .env ...
-  Fix: edit .env (copy .env.example if it does not exist) and restart.
-  ```
-
-If a search is ever started while the configured provider has no key, the job
-fails cleanly with a user-safe message — it never crashes the server.
-
-## 4. Running in development
-
-**Backend** (http://localhost:8000, auto-reload)
+**Backend** — http://localhost:8000, auto-reload
 
 ```bash
 cd backend
 python3 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt -r requirements-dev.txt
-export DATABASE_URL=sqlite:///./data/dev.db   # or your Postgres from .env
-export BUSINESS_PROVIDER=mock                 # zero-key quickstart
-alembic upgrade head                          # create/migrate tables
+export DATABASE_URL=sqlite:///./data/dev.db
+export BUSINESS_PROVIDER=mock
+alembic upgrade head
 uvicorn app.main:app --reload --port 8000
-
-# second terminal — background workers (needs Redis):
-celery -A app.workers.celery_app.celery_app worker --loglevel=INFO
 ```
 
-**Frontend** (http://localhost:3000, proxies `/backend/*` → API)
+**Frontend** — http://localhost:3000, proxies `/backend/*` to the API
 
 ```bash
 cd frontend
@@ -143,329 +234,281 @@ npm install
 npm run dev
 ```
 
-**Run both services directly** (without Docker):
+**Everything at once** (API + Celery worker + web UI, Ctrl+C stops all three):
 
 ```bash
-python run.py
+./run.sh                 # requires backend/.venv and frontend/node_modules
+API_PORT=8001 ./run.sh   # the proxy follows the port automatically
 ```
 
-This initializes the local SQLite database when needed, starts the FastAPI
-backend and starts the Next.js frontend. For a non-SQLite database it applies
-Alembic migrations first. Add `--worker` when Redis is running locally and you
-also need the Celery worker:
-
-```bash
-python run.py --worker
-```
-
-**Or everything at once with Docker:**
-
-```bash
-docker compose up --build      # mock mode works out of the box
-```
-
-## 5. Running in production (Docker)
-
-```bash
-cp .env.example .env
-# edit .env: APP_ENV=production, strong SECRET_KEY, real DATABASE_URL/REDIS_URL
-#            (compose overrides these for its internal services), provider keys,
-#            CORS_ORIGINS with your real domain, TLS certs under
-#            infrastructure/nginx/certs/
-
-docker compose up -d --build
-docker compose exec api alembic upgrade head      # apply migrations
-docker compose logs -f api worker                 # verify startup checks pass
-```
-
-Without Docker, run the same components behind your own supervisor:
-
-```bash
-uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 2
-celery -A app.workers.celery_app.celery_app worker --loglevel=INFO --concurrency=2
-cd frontend && npm run build && npm start
-```
-
-Production checklist: see [`docs/PRODUCTION_CHECKLIST.md`](docs/PRODUCTION_CHECKLIST.md)
-and [`docs/deployment.md`](docs/deployment.md) (TLS, HSTS, non-root containers,
-healthchecks, structured logs, backups).
-
-## 6. Enabling real data (Google Places / Serper / OpenStreetMap)
-
-1. Get a **Places API (New)** key (Google Cloud console) and/or a
-   [serper.dev](https://serper.dev) key — or use **OpenStreetMap
-   (Nominatim)**, which needs **no key at all**.
-2. In `.env`:
-   ```
-   BUSINESS_PROVIDER=google          # or serper — or nominatim (keyless)
-   GOOGLE_MAPS_API_KEY=your-key      # and/or SERPER_API_KEY=your-key
-   ```
-
-### OpenStreetMap (Nominatim) — the open-source geocoder
-
-Nominatim replaces **all** Google Maps geocoding endpoints:
-
-- `BUSINESS_PROVIDER=nominatim` discovers businesses directly from OSM data
-  (amenity/shop/office tags, bounded viewbox searches) — free, keyless, MIT
-  licensed data.
-- `PROVIDER_FALLBACK_CHAIN=auto` appends Nominatim as a free last resort for
-  any non-mock default provider, so an outage of the paid provider
-  automatically degrades to OSM instead of failing the search.
-- `ENABLE_NOMINATIM_GEOCODE=true` resolves a job's text location (e.g.
-  *"Porwal Road, Pune"*) to a lat/lng center via Nominatim before discovery.
-- Compliance: honest User-Agent (`NOMINATIM_USER_AGENT`), throttled to
-  ≤ 1 request/second, bounded queries — per the
-  [Nominatim usage policy](https://operations.osmfoundation.org/policies/nominatim/).
-
-### Disify — disposable-email detection (free, keyless)
-
-Website-extracted emails are checked against [disify.com](https://disify.com);
-throwaway hosts (mailinator, yopmail, …) are downgraded to `LOW` confidence
-and the verdict is stored per contact (`email_disposable`). Disable with
-`ENABLE_DISIFY_CHECKS=false`.
-
-### Side-by-side providers (Google + Serper together)
-
-Both keys can be configured at once. Users then choose the data source per
-search via the **Data source** dropdown (Auto / Google Places / Serper), and
-if the chosen provider fails at runtime (rate limit, outage, bad key) the
-next configured provider in `PROVIDER_FALLBACK_CHAIN` serves the search
-automatically. The results page clearly states when a fallback was used.
-
-```
-PROVIDER_FALLBACK_CHAIN=auto            # default + any other configured provider
-PROVIDER_FALLBACK_CHAIN=google,serper   # Google first, Serper as backup
-PROVIDER_FALLBACK_CHAIN=serper,google   # Serper first, Google as backup
-PROVIDER_FALLBACK_CHAIN=                # fallback disabled
-```
-
-Every provider's billable calls are recorded separately in the admin usage
-dashboard (`/admin` → Overview), with per-call cost estimates from
-`GOOGLE_PLACES_*_COST_PER_CALL`. Google field masks are selective (never
-`*`) — only the 13 fields the product uses are requested.
-
-Website crawling (contact enrichment) works with both providers and is on by
-default; set `ENABLE_WEBSITE_CRAWLING=false` to disable.
-
-## 7. Tests
-
-```bash
-cd backend
-./.venv/bin/python -m pytest tests/        # full suite (135 tests)
-```
-
-Covers: query parsing, contact normalization, dedup scoring, crawler behavior
-against a local HTTP server, SSRF-protection matrix, provider failure scenarios
-(timeout, empty, auth errors, malformed payloads), API auth/RBAC/rate limits,
-search lifecycle, PDF/CSV/XLSX generation. Live harnesses:
-`scripts/live_e2e.py`, `scripts/test_cancel.py`, `scripts/load_test.py` — see
-[`docs/TESTING.md`](docs/TESTING.md).
-
-## 8. Requested-vs-available data logic
-
-The product promises: **show exactly what the user asked for — and if that much
-is not available, show everything that is, and say so.**
-
-- `POST /api/search` stores both numbers on the job:
-  `requested_results` (what the user typed) and `max_results` (the same value
-  clamped to the platform cap `MAX_RESULTS`).
-- The pipeline compares delivered results against the request at completion and
-  writes an explicit `stage_detail`:
-  - *Full delivery* → `All 100 requested results delivered.`
-  - *Source shortfall* → `Requested 100, showing 45 available — the data source
-    returned fewer matches for this query.`
-  - *Platform cap* → `Requested 200; platform limit is 60 per search — showing
-    all 60 available results.`
-- `GET /api/search/{id}/results` returns `requested_results` alongside the
-  page data, so the results page always renders an **AvailabilityNotice**:
-  > ⓘ Requested 200 leads; the platform limit is 60 per search — showing all
-  > 60 available results.
-  > ⚠ Requested 100 leads, but only 45 are available for this search — showing
-  > all available data. Try broadening the location or industry to find more.
-  > ✓ Showing all 45 available results — your full request of 45 was delivered.
-
-Providers already paginate (up to 6 pages of 20 on Google Text Search) and stop
-early on exhaustion, so a request for 100 simply returns as many as exist.
-
-## 9. Error handling & failure behavior
-
-**Backend**
-
-- Every provider HTTP call (`google_places.py`, `serper.py`) runs through a
-  single `_request()` path with: exponential backoff, `Retry-After` support,
-  retry on 429/5xx, immediate failure on 401/403, and typed exceptions
-  (`ProviderAuthError`, `ProviderRateLimited`, `ProviderTimeout`,
-  `ProviderUnavailable`).
-- Provider responses that are not JSON, or have an unexpected shape, are
-  converted into clean `ProviderUnavailable` errors; malformed individual place
-  records are skipped instead of failing the search.
-- Malformed JSON from a provider ⇒ `ProviderUnavailable` with a clear message.
-- The pipeline isolates failures: one dead website or one bad record never
-  sinks a job; only fatal job-level failures mark the job `failed`, and even
-  then the API keeps serving.
-- Users see mapped, non-technical messages
-  (`providers/base.py → friendly_provider_message`): quota issues read
-  *"Business data provider quota has been reached. Please try again later."*
-
-**Frontend**
-
-- `lib/api.ts` maps every HTTP status to an actionable sentence (429 →
-  "You're going too fast…", 5xx → "Something went wrong on our side…"),
-  treats network dropouts as retryable, and surfaces the backend's own clean
-  `detail` when present. Raw stack traces never reach the UI.
-- All fetches are wrapped; failures render as toasts/banners, never a crash.
-
-## 10. Security notes for production
-
-- **Secrets**: `.env` is gitignored — verify with `git check-ignore .env`.
-  Rotate `SECRET_KEY` on any suspicion of leakage (invalidates sessions).
-- **Startup guarantees**: production refuses to boot with placeholder secrets
-  or missing provider keys (`PROVIDER_STRICT_CONFIG=true`).
-- **Log redaction**: registered secret *values* are scrubbed from structured
-  logs (`core/config.py → register_secret`).
-- Argon2 password hashing, JWT access tokens (30 min) + rotating refresh
-  tokens with reuse detection.
-- RBAC: ADMIN vs USER; every job/business/report is ownership-checked.
-- SSRF guard on the crawler (`SSRF_PROTECTION=true` — keep it on), robots.txt
-  compliance, per-domain rate limiting, honest User-Agent.
-- Rate limiting per user (`RATE_LIMIT_*`), strict CORS allow-list, security
-  headers + HSTS in production, parameterized SQL everywhere.
-- Reports are UUID-named and served only to their owner via authenticated
-  downloads.
-
-## 11. Repo layout & further docs
-
-```
-├── backend/            FastAPI + SQLAlchemy + Celery + crawler + exports
-│   ├── app/api/        REST endpoints (auth, search, business, exports, admin, health)
-│   ├── app/providers/  BusinessSearchProvider abstraction + mock/google/serper
-│   ├── app/workers/    Celery pipeline stages + progress pub/sub
-│   ├── app/core/       config, security, startup checks, rate limiting, logging
-│   └── tests/          135 tests (unit, API, crawler, pipeline, exports)
-├── frontend/           Next.js 14 + TypeScript + Tailwind
-│   ├── app/            routes: login/register/dashboard/results/history/admin
-│   ├── lib/api.ts      typed API client: token refresh + friendly error mapping
-│   └── components/     UI primitives (badges, toasts, notices, dialogs)
-├── infrastructure/     Dockerfiles + nginx reverse proxy (TLS, SSE-safe)
-├── leadgen/            Standalone open-source lead-gen engine (CLI, MIT) — see §12
-├── docs/               architecture, api, deployment, SECURITY, CRAWLER, TESTING,
-│                       TROUBLESHOOTING, PRODUCTION_CHECKLIST
-├── docker-compose.yml  postgres + redis + api + worker + frontend + nginx
-├── .env.example        every configuration variable, documented
-├── requirements.txt    engine dependencies (the platform has backend/requirements.txt)
-└── README.md           this file
-```
-
-Compliance posture: official data sources only, polite crawling, no fabricated
-contacts (every email carries `source_url` + confidence), no scraping of
-third-party marketplaces.
-
-License: **MIT** — see [`LICENSE`](LICENSE).
+Environment requirements: **Python 3.11+** (3.12 recommended), **Node 18.17+** (20 LTS recommended), **PostgreSQL 14+** and **Redis 7+** for production parity — SQLite and the mock provider are enough for local work.
 
 ---
 
-## 12. Open-source leadgen engine (`leadgen/`)
+## Configuration
 
-A self-contained, modular Python engine implementing the open-source OSINT
-lead-generation spec with **zero Google Maps endpoints** and **zero paid
-calls required**: it reuses the same compliance ideas as the platform
-(robots.txt, SSRF guard, honest User-Agent) but runs standalone on
-`requests` + `pandas` + SQLite.
+All configuration is environment-only. Copy the annotated template and edit it:
 
-### API stack
+```bash
+cp .env.example .env      # gitignored; .env.example is the committed reference
+```
 
-| Role | Service | Key? |
+**The variables that matter most**
+
+| Variable | Required | Notes |
 |---|---|---|
-| Website metadata, emails, social links | **SiteIntel** (Apify actor) or keyless homepage fallback | `APIFY_TOKEN` optional |
-| Phone normalization (E.164, `international_format` only) | **Numverify** (apilayer.net) | `NUMVERIFY_API_KEY` optional (falls back to `phonenumbers`) |
-| Disposable / free-mail detection | **Disify** (disify.com) | none — keyless |
-| Geocoding | **Nominatim** (OpenStreetMap) | none — keyless |
-| Regional fallback when OSM has no hit | **Open-Meteo geocoding** | none — keyless |
+| `SECRET_KEY` | **Yes** | Signs JWTs. Generate with `openssl rand -hex 32`. Production **refuses to boot** on the placeholder. |
+| `DATABASE_URL` | **Yes (prod)** | `postgresql+psycopg2://user:pass@host:5432/dbname` (SQLite supported for local dev) |
+| `REDIS_URL` | **Yes (prod)** | `redis://host:6379/0` — progress pub/sub and Celery broker |
+| `BUSINESS_PROVIDER` | Yes | `mock` · `nominatim` · `geoapify` · `google` · `serper` |
+| `CORS_ORIGINS` | **Yes (prod)** | Comma-separated, exact-match browser origins |
+| `FRONTEND_ORIGIN` | Recommended | Always allow-listed in addition to `CORS_ORIGINS` |
+| `ENCRYPTION_KEY` | Optional | Fernet key for provider keys stored via the admin UI |
+| `SMTP_*` | Optional | Only needed for password-reset email delivery |
 
-Copy the engine variables from `.env.example` into your `.env` (all optional:
-without keys the engine still runs on its fallback paths).
+Operational knobs (all documented in `.env.example`): `MAX_RESULTS`, `MAX_PAGES_PER_DOMAIN`, `CRAWL_TIMEOUT`, `CRAWL_CONCURRENCY`, `CRAWL_RATE_LIMIT_PER_DOMAIN_PER_SEC`, `RATE_LIMIT_SEARCH_PER_MIN`, `RATE_LIMIT_API_PER_MIN`, `ENABLE_WEBSITE_CRAWLING`, `SSRF_PROTECTION`, `RESPECT_ROBOTS_TXT`, `PROVIDER_FALLBACK_CHAIN`, `PROVIDER_STRICT_CONFIG`.
 
-### Quick start
+**Startup validation.** With `APP_ENV=production`, missing keys, a placeholder `SECRET_KEY`, or a provider without its key make the server **refuse to start**, naming the variable. In development it boots with a warning banner instead. A search started against an unconfigured provider fails cleanly with a user-safe message.
+
+---
+
+## Data providers
+
+| Provider | Key | Notes |
+|---|---|---|
+| `mock` | none | Deterministic, offline. Fault-injection scenarios (`timeout`, `empty`) for demos and tests. |
+| `nominatim` | none | Businesses discovered from OpenStreetMap (amenity/shop/office tags). Free, keyless, MIT-licensed data; throttled to ≤1 req/s with an honest User-Agent per the OSM usage policy. |
+| `geoapify` | `GEOAPIFY_API_KEY` | Free tier of ~3,000 requests/day. |
+| `google` | `GOOGLE_MAPS_API_KEY` | Places API (New) with selective field masks (13 fields, never `*`) and per-call cost tracking. |
+| `serper` | `SERPER_API_KEY` | Alternative discovery source. |
+
+Several providers can be configured at once: users then pick the source per search (Auto / Google / Serper / Geoapify / OSM), and `PROVIDER_FALLBACK_CHAIN` decides what serves the request if the chosen one is rate-limited or down.
+
+```
+PROVIDER_FALLBACK_CHAIN=auto            # default provider, then any other configured one
+PROVIDER_FALLBACK_CHAIN=google,serper   # explicit order
+PROVIDER_FALLBACK_CHAIN=nominatim       # degrade to free OSM data last
+PROVIDER_FALLBACK_CHAIN=                # fallback disabled
+```
+
+Two more free services are used, both keyless and both optional: **Nominatim geocoding** (`ENABLE_NOMINATIM_GEOCODE=true`) to turn *"Porwal Road, Pune"* into a lat/lng centre, and **Disify** (`ENABLE_DISIFY_CHECKS=true`) to downgrade throwaway email domains to LOW confidence.
+
+---
+
+## API surface
+
+Interactive OpenAPI docs at `/api/docs` (Swagger) and `/api/redoc`. Full reference: [`docs/api.md`](docs/api.md).
+
+| Group | Endpoints |
+|---|---|
+| **Auth** | `POST /api/auth/register` · `login` · `refresh` · `logout` · `forgot-password` · `reset-password` · `GET /api/auth/me` |
+| **Search** | `POST /api/search/interpret` (parse preview) · `POST /api/search` (202 + `job_id`) · `GET /api/search` · `GET /api/search/{id}` · `GET /api/search/{id}/stream` (SSE) · `GET /api/search/{id}/results` (filter + paginate) · `GET /api/search/{id}/summary` · `POST /api/search/{id}/cancel` |
+| **Business** | `GET /api/business/{id}` — record with `contacts[]` and `crawl_pages[]` |
+| **Exports** | `POST /api/search/{id}/export/{pdf,csv,xlsx}` → `{filename}` · `GET /api/search/{id}/export/{kind}?filename=` |
+| **Admin** | `GET /api/admin/jobs` · `users` · `PATCH /api/admin/users/{id}` · `GET /api/admin/usage` · `GET/PUT /api/admin/providers` · `GET /api/admin/audit-logs` |
+| **Health** | `GET /api/health` |
+
+`Authorization: Bearer <access_token>` on every protected route. Errors are always `{"detail": "human-readable message"}` — `401`, `403`, `404` (also used for cross-user access, to prevent enumeration), `409` (export before completion), `422`, `429` (+`Retry-After`), `500` (logged server-side, generic to the client).
+
+Job statuses: `queued → discovering → enriching → crawling → extracting → deduplicating → completed | failed | cancelled`.
+
+---
+
+## Live progress in the UI
+
+- The **results page** streams SSE and renders stage-by-stage progress, counters and the data-quality banner.
+- The **dashboard** stays on screen after `POST /search` and shows the live progress card — no forced redirect, so the search you just started is the thing you watch.
+- A **header loader** (`ActiveSearchProvider`) shows the current stage and percentage for any non-terminal job on every page: it discovers running jobs on mount, polls every 3 s *only* while one exists, and follows `visibilitychange`. It is the first row of the mobile menu.
+- Render failures land on `error.tsx` / `global-error.tsx` — a "Something went wrong — Retry" card, never a blank page.
+
+---
+
+## Exports
+
+Three formats, generated server-side, ownership-checked on download:
+
+- **PDF** — branded report with summary, per-business contact cards and confidence tiers (ReportLab; HTML escaped).
+- **CSV / XLSX** — one row per business; cells beginning with `=`, `+`, `-` or `@` are prefixed with `'` to neutralize spreadsheet formula injection.
+
+Files are UUID-named and served only to their owner (or an admin). On single-container deployments the storage directory is ephemeral — see [Known limitations](#known-limitations).
+
+---
+
+## Testing
+
+```bash
+cd backend
+./.venv/bin/python -m pytest -q                 # unit, API, crawler, SSRF, exports, pipeline
+
+DATABASE_URL=postgresql+psycopg2://locallead:locallead@localhost:5432/locallead \
+REDIS_URL=redis://localhost:6379/0 \
+./.venv/bin/python scripts/live_e2e.py          # real uvicorn + Celery + Postgres + Redis
+
+./.venv/bin/python scripts/test_cancel.py       # cancellation lifecycle
+./.venv/bin/python scripts/load_test.py         # concurrent job throughput
+
+cd ../frontend && npm run build                 # production build + type checking
+```
+
+What the suites cover: query parsing across example queries, contact normalization, dedup scoring, crawler behaviour against local HTTP fixtures, the SSRF protection matrix (IPv4/IPv6 ranges, DNS resolution, redirect re-validation), provider failure modes (timeout, empty, auth error, malformed payload), API auth/RBAC/rate limits, search lifecycle, and PDF/CSV/XLSX generation including Unicode and formula injection.
+
+Conventions: tests never call third-party sites (local HTTP fixtures + mock provider, with `SSRF_ALLOWED_HOSTS=127.0.0.1` so SSRF protection stays **on**), no test is skipped or weakened to make a suite pass, and anything needing real credentials is reported as unverified rather than faked. Details: [`docs/TESTING.md`](docs/TESTING.md).
+
+---
+
+## Deployment
+
+| Option | Cost | Shape | Guide |
+|---|---|---|---|
+| **Docker Compose on a VPS** | VPS cost | Full stack behind nginx with TLS: postgres, redis, api, worker, frontend, nginx | [`docs/deployment.md`](docs/deployment.md) · [`docs/HOSTINGER_DEPLOYMENT.md`](docs/HOSTINGER_DEPLOYMENT.md) |
+| **Cloudflare Workers + Containers** | **$5/mo** (Workers Paid; Containers have no free tier) | Both real Docker images behind one Worker; needs Neon + Upstash | [`cloudflare/README.md`](cloudflare/README.md) |
+| **Cloudflare Pages + Render** | **$0** | Frontend on Pages (edge), API on Render free + Neon + Upstash | [`deploy/README.md`](deploy/README.md) |
+
+### Docker Compose (recommended for production)
+
+```bash
+cp .env.example .env
+# APP_ENV=production, strong SECRET_KEY, real DATABASE_URL/REDIS_URL,
+# provider keys, CORS_ORIGINS with your domain, TLS certs in infrastructure/nginx/certs/
+
+docker compose up -d --build
+docker compose exec api alembic upgrade head
+docker compose logs -f api worker     # confirm startup checks pass
+```
+
+The `api` service runs `alembic upgrade head` before serving. Scale workers with `docker compose up -d --scale worker=4`. TLS: drop `fullchain.pem` / `privkey.pem` into `infrastructure/nginx/certs/` and switch nginx to `nginx-tls.conf.example` — HSTS is only ever sent on the HTTPS entrypoint.
+
+### Cloudflare Containers ($5/mo)
+
+```bash
+cd cloudflare && npm install && npx wrangler login
+npx wrangler secret put SECRET_KEY        # plus DATABASE_URL, REDIS_URL, CORS_ORIGINS, FRONTEND_ORIGIN
+npx wrangler deploy
+```
+
+Cloudflare has no managed Postgres, so pair it with Neon (Postgres) and Upstash (Redis). `max_instances: 1` keeps a job, its SSE stream and its report inside one container.
+
+### Cloudflare Pages + Render ($0)
+
+Frontend on Pages (`npx @cloudflare/next-on-pages@1`), API on Render's free Docker service, Neon + Upstash for data. `frontend/wrangler.toml` pins the runtime requirement — the Pages bundle needs the **`nodejs_compat`** compatibility flag or the Worker throws at runtime. Free-tier trade-offs: the API sleeps after 15 idle minutes (~1 min cold start, 512 MB RAM). Full walkthrough: [`deploy/README.md`](deploy/README.md).
+
+---
+
+## Operations
+
+| Task | Command |
+|---|---|
+| Logs (JSON lines, secrets redacted) | `docker compose logs -f api worker` |
+| Health probe | `curl -s localhost:8000/api/health` → DB, Redis, workers, provider |
+| Migrations | `docker compose exec api alembic upgrade head` (idempotent) |
+| Database backup | `docker compose exec postgres pg_dump -U locallead locallead \| gzip > backup.sql.gz` |
+| Upgrade | `git pull && docker compose up -d --build` |
+| Provider spend | Admin → Overview (`/admin`) — calls and estimated cost today/month |
+| Crawl audit | Per-business `crawl_pages` in the UI; `python -m leadgen audit` for the standalone engine |
+
+Wire `/api/health` to your uptime monitor: it fails loudly when the database, Redis, worker presence or provider configuration is broken.
+
+---
+
+## Security posture
+
+- **Passwords**: Argon2 (bcrypt fallback). **Sessions**: short-lived JWT access tokens + rotating refresh tokens with reuse detection, hashed at rest.
+- **Authorization**: every job, business and export is ownership-scoped; cross-user access returns **404** (not 403) to avoid enumeration; `/api/admin/*` requires the ADMIN role.
+- **SSRF guard** on the crawler: scheme allowlist, credential rejection, hostname blocklist, DNS resolution checks against loopback/RFC1918/CGNAT/link-local/metadata ranges, and **re-validation on every redirect hop** — all before any network request.
+- **Crawler compliance**: robots.txt honoured and cached per origin, honest User-Agent, per-domain rate limiting, page/byte caps, HTML-only content gate, no JS evasion, no CAPTCHA solving, no proxy rotation.
+- **Inputs**: Pydantic validation on every endpoint, SQLAlchemy bound parameters only.
+- **Rate limits**: login/register/reset per IP, search creation per user, general API ceiling.
+- **Secrets**: environment-only, validated at boot, registered for log redaction (`core/config.py → register_secret`).
+- **Exports**: UUID filenames, ownership re-checked on every download, spreadsheet formula injection neutralized, HTML escaped in PDFs.
+- **Headers**: CSP (host-based `connect-src`), `nosniff`, `X-Frame-Options: DENY`, `Referrer-Policy`, `Permissions-Policy`, HSTS on the TLS entrypoint only.
+
+Full detail: [`docs/SECURITY.md`](docs/SECURITY.md). Production checklist: [`docs/PRODUCTION_CHECKLIST.md`](docs/PRODUCTION_CHECKLIST.md).
+
+---
+
+## Troubleshooting
+
+| Symptom | Cause | Fix |
+|---|---|---|
+| Jobs stay `queued` forever | No Celery worker, and the in-process fallback could not start | Start the worker (`docker compose up worker`, or `python run.py --worker`); check `/api/health` → `workers` |
+| `Refusing to start in production with missing configuration` | Startup validation caught a placeholder `SECRET_KEY` or a provider without its key | Set the named variable in `.env`; `PROVIDER_STRICT_CONFIG=false` relaxes it for staging |
+| Browser shows an empty dashboard, console has CORS errors | API `CORS_ORIGINS` lacks the frontend origin | Add the exact origin (`https://your-app.pages.dev`) and redeploy the API |
+| Export says *"Report not found"* | Container/report storage is ephemeral and the instance restarted | Regenerate the export (see limitations) |
+| Cloudflare Pages 500 after deploy | Missing `nodejs_compat` compatibility flag | Set the flag (already pinned in `frontend/wrangler.toml`), rebuild |
+| `Could not detect a directory containing static files` on Pages | Wrong build command/output for a Next.js app | Build with `npx @cloudflare/next-on-pages@1`, output `.vercel/output/static` |
+| Everything slow on first request | Free tier cold start | Expected; the instance wakes in ~1 minute |
+| `429` while testing | Rate limiting | Raise `RATE_LIMIT_SEARCH_PER_MIN` / `RATE_LIMIT_API_PER_MIN` locally |
+
+More: [`docs/TROUBLESHOOTING.md`](docs/TROUBLESHOOTING.md).
+
+---
+
+## Known limitations
+
+- **Single-provider geography.** Discovery quality depends on the provider's coverage; OSM (Nominatim) is free but sparse outside well-mapped cities.
+- **No JavaScript rendering.** The crawler reads server-rendered HTML only. Contact pages rendered client-side are missed by design (no Playwright, no evasion).
+- **Ephemeral storage on single-container hosts.** Generated reports live on local disk; Cloudflare Containers and Render discard them when the instance sleeps or redeploys — regenerate the export, or move exports to object storage (R2/S3) for permanence.
+- **One API instance in the container deployments.** `max_instances: 1` keeps jobs, SSE and reports co-located; heavy parallel use needs the Celery worker and a shared Redis.
+- **Email confidence is a heuristic.** Domain match + provenance + disposable-host check — strong signal, not a deliverability guarantee.
+
+---
+
+## The standalone `leadgen/` engine
+
+`leadgen/` is a separate, self-contained Python package for single-lead or CSV-batch OSINT enrichment, with no Google Maps dependency and no paid calls required. It shares the platform's compliance model (robots.txt, SSRF guard, honest User-Agent) but runs standalone on `requests`, `pandas` and SQLite.
 
 ```bash
 pip install -r requirements.txt
 
-# one lead
-python -m leadgen run --name "Sunrise Hospital" \
-    --website https://sunrisehospital.in --city Pune --country in \
-    --phone "+91 98220 12345"
-
-# bulk from CSV (columns: business_name,website,city,country_code,phone,address)
-python -m leadgen run --input seeds.csv
-
-# export the SQLite store to output/leads.json and output/leads.csv
-python -m leadgen export
-
-# inspect the Crawl Audit Trail
-python -m leadgen audit --limit 20
+python -m leadgen run --name "Sunrise Hospital" --website https://sunrisehospital.in \
+    --city Pune --country in --phone "+91 98220 12345"
+python -m leadgen run --input seeds.csv      # columns: business_name,website,city,country_code,phone,address
+python -m leadgen export                     # output/leads.json + output/leads.csv
+python -m leadgen audit --limit 20           # Crawl Audit Trail
 ```
 
-### How Email Confidence works
+Notable behaviour: **email confidence** is tiered by whether the email's domain matches the business domain (HIGH), appears on the official site on a reputable free host (MEDIUM), or comes from an external/third-party page or a disposable host (LOW). **Every outbound HTTP call** is recorded in `crawl_audit_events` with status, latency, robots verdict and a `status_kind` (`ok`, `http_error`, `robots_disallowed`, `ssrf_blocked`, `dns_error`, `ssl_error`, `timeout`, `api_exempt`). **Deduplication** hashes normalized E.164 phone + domain, persisted across runs so duplicates are caught between batches, not just within one.
 
-Every extracted email is scored into one of three tiers by
-`leadgen/confidence.py` (`calculate_email_confidence`):
+---
 
-| Tier | Condition |
+## Documentation map
+
+| Document | Read it for |
 |---|---|
-| **HIGH** | The email's domain **matches the business website's domain** (extracted via SiteIntel) — e.g. `info@sunrisehospital.in` found on `sunrisehospital.in`. Subdomains of the business domain also count. |
-| **MEDIUM** | The email was found **on the official business website** and its domain is a known free/standard mail host (`gmail.com`, `outlook.com`, …) that Disify reports as **not disposable**. |
-| **LOW** | Everything else: emails found on **external pages or third-party directories**, disposable/throwaway hosts (even when found on the official site), or addresses whose provenance is unknown. |
+| [`PROJECT_EXPLANATION.md`](PROJECT_EXPLANATION.md) | Concepts, data model, user journeys, background pipeline in depth |
+| [`docs/architecture.md`](docs/architecture.md) | System diagram, provider abstraction, crawler compliance model, tables |
+| [`docs/api.md`](docs/api.md) | Endpoint-by-endpoint reference with payloads |
+| [`docs/deployment.md`](docs/deployment.md) | Compose deployment, TLS, hardening checklist |
+| [`docs/HOSTINGER_DEPLOYMENT.md`](docs/HOSTINGER_DEPLOYMENT.md) | VPS walkthrough with free, keyless APIs |
+| [`deploy/README.md`](deploy/README.md) | $0 split: Cloudflare Pages + Render + Neon + Upstash |
+| [`cloudflare/README.md`](cloudflare/README.md) | $5/mo all-Cloudflare Containers deployment |
+| [`docs/SECURITY.md`](docs/SECURITY.md) | Auth, RBAC, SSRF matrix, data integrity, headers |
+| [`docs/TESTING.md`](docs/TESTING.md) | Suites, harnesses, conventions |
+| [`docs/CRAWLER.md`](docs/CRAWLER.md) | Crawl policy and extraction rules |
+| [`docs/TROUBLESHOOTING.md`](docs/TROUBLESHOOTING.md) | Failure modes and fixes |
+| [`docs/PRODUCTION_CHECKLIST.md`](docs/PRODUCTION_CHECKLIST.md) | Pre-launch checklist |
 
-Disify's verdict (`disposable: true|false`, unknown on network failure) is
-combined with a local free-host list, so the engine still tier-correctly
-when the API is unreachable. This corrects the original spec snippet, whose
-`elif is_disposable == False → MEDIUM` branch made `LOW` unreachable for
-non-disposable emails and never verified *where* the email was found.
+---
 
-### How the Crawl Audit Trail works
+## Contributing
 
-Every outbound HTTP call in the engine goes through `leadgen/audit.py`
-(`http_get`), which records a queryable row per attempt — success, failure
-or block:
+1. Branch from `main` (`feat/…`, `fix/…`).
+2. Keep the provider interface intact — a new data source is one class plus a factory registration in `app/providers/`.
+3. Match existing conventions: typed API client in `frontend/lib/api.ts`, Pydantic schemas for every payload, no secrets in code.
+4. Run the suites before opening a PR:
 
-| Field | Meaning |
-|---|---|
-| `http_status` | HTTP status code (NULL when the request never completed — blocked, DNS failure, timeout). |
-| `response_time_ms` | Wall-clock latency of the attempt including retries. |
-| `robots_allowed` | Boolean: robots.txt verdict for the target URL and our User-Agent. Disallowed targets are **never fetched** — the row records the refusal. |
-| `status_kind` | `ok` / `http_error` / `robots_disallowed` / `ssrf_blocked` / `dns_error` / `ssl_error` / `timeout` / `api_exempt`. |
-| `error` | Short failure reason (first 300 chars). |
+```bash
+cd backend && ./.venv/bin/python -m pytest -q && cd ../frontend && npm run build
+```
 
-- **robots.txt**: fetched and cached per origin; a `robots_disallowed` URL
-  is skipped before any request hits the target. Documented REST APIs
-  (Disify, Numverify, Nominatim, REST Countries, Apify) are exempt from
-  robots *enforcement* but still audited with `api_exempt: true`.
-- **SSRF guard**: hostname-local names, private/loopback/link-local/metadata
-  IP literals and DNS names resolving into private ranges are refused
-  (`ssrf_blocked`), including redirect hops.
-- **Storage**: rows land in the `crawl_audit_events` SQLite table (also
-  embedded per lead as `audit_trail` JSON and summarized in the per-lead
-  `crawl_http_status` / `crawl_response_time_ms` / `crawl_robots_allowed`
-  columns). View the tail with `python -m leadgen audit`.
+5. Describe the behaviour change and how you verified it. Fix failing checks at the root cause rather than relaxing them.
 
-### Deduplication (Unique Hash)
+**Never commit** `.env`, credentials, generated reports or `node_modules`.
 
-`leadgen/dedup.py` computes `unique_hash = sha256(normalized_phone +
-"|" + domain)`; the first lead with a given hash is `UNIQUE`, every later
-match is flagged `DUPLICATE`. Because phones are normalized to E.164 by
-Numverify first, `044 123 456` and `+44 123 456` collapse to the same hash.
-Phone-less leads hash on domain alone in a separate namespace so they can
-neither collide with nor merge into phone-keyed leads. The index is
-pre-seeded from SQLite, so duplicates are caught **across runs**, not just
-within one.
+---
 
-### Geocoding (no Google Maps)
+## License
 
-`leadgen/geocode.py` resolves **business name + city** through Nominatim
-(name+city first, then city alone), and falls back to **Open-Meteo**
-city-level geocoding when OSM returns nothing (the originally specified
-REST Countries fallback was deprecated by its maintainer and now requires
-a paid key, so the engine uses a free, keyless city-level source instead).
-Every lead stores the `geo_source` (`nominatim` / `open-meteo`) so
-provenance is explicit — and there is not a single `maps.googleapis.com`
-reference in the engine (guarded by a test).
+MIT — see [`LICENSE`](LICENSE).
+
+Data and services used by the platform keep their own terms: Google Places API, Geoapify and Serper require accounts and are billed by their providers; OpenStreetMap data is © OpenStreetMap contributors, available under the [ODbL](https://www.openstreetmap.org/copyright) and used via Nominatim under its [usage policy](https://operations.osmfoundation.org/policies/nominatim/).
