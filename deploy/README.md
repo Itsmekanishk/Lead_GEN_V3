@@ -67,7 +67,13 @@ Pages → **Create application → Pages → Connect to Git** → this repo.
 | Root directory | `frontend` |
 | Build command | `npx @cloudflare/next-on-pages@1` |
 | Build output directory | `.vercel/output/static` |
+| Runtime compatibility | flag `nodejs_compat`, date `2026-05-03` — already set in `frontend/wrangler.toml` |
 | Environment variable | `NEXT_PUBLIC_API_URL=https://locallead-api.onrender.com` |
+
+`nodejs_compat` is required, not optional: the generated `_worker.js` imports
+`node:buffer` and `node:async_hooks`, and the Worker throws at runtime without
+the flag. If the dashboard asks instead of reading `frontend/wrangler.toml`, set
+it under **Settings → Functions → Compatibility flags**.
 
 `NEXT_PUBLIC_API_URL` is inlined at build time, so the browser calls the Render
 API directly (no rewrites — `next.config.mjs` disables them when that variable is

@@ -1,0 +1,10 @@
+# Cloudflare Pages project settings for the frontend.
+#
+# Committed so the Pages project (and `wrangler pages deploy`) gets the same
+# runtime configuration as a local `wrangler pages dev` run. Verified: without
+# nodejs_compat the generated _worker.js throws at runtime, because the Next.js
+# edge bundle imports node:buffer and node:async_hooks.
+name = "locallead"
+pages_build_output_dir = ".vercel/output/static"
+compatibility_date = "2026-05-03"
+compatibility_flags = ["nodejs_compat"]
