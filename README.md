@@ -390,7 +390,7 @@ Cloudflare has no managed Postgres, so pair it with Neon (Postgres) and Upstash 
 
 ### Cloudflare Pages + Render ($0)
 
-Frontend on Pages (`npx @cloudflare/next-on-pages@1`), API on Render's free Docker service, Neon + Upstash for data. `frontend/wrangler.toml` pins the runtime requirement — the Pages bundle needs the **`nodejs_compat`** compatibility flag or the Worker throws at runtime. Free-tier trade-offs: the API sleeps after 15 idle minutes (~1 min cold start, 512 MB RAM). Full walkthrough: [`deploy/README.md`](deploy/README.md).
+Frontend on Pages (`npm run pages:build`, root directory `frontend`), API on Render's free Docker service, Neon + Upstash for data. `frontend/wrangler.toml` pins the runtime requirement — the Pages bundle needs the **`nodejs_compat`** compatibility flag or the Worker throws at runtime. Free-tier trade-offs: the API sleeps after 15 idle minutes (~1 min cold start, 512 MB RAM). Full walkthrough: [`deploy/README.md`](deploy/README.md).
 
 ---
 

@@ -74,11 +74,24 @@ there) and the build fails.
 | Setting | Value |
 |---|---|
 | Framework preset | None (or Next.js) |
-| Root directory | `frontend` |
-| Build command | `npx @cloudflare/next-on-pages@1` |
+| Root directory | `frontend` **(Advanced — mandatory)** |
+| Build command | `npm run pages:build` |
 | Build output directory | `.vercel/output/static` |
 | Runtime compatibility | flag `nodejs_compat`, date `2026-05-03` — already set in `frontend/wrangler.toml` |
 | Environment variable | `NEXT_PUBLIC_API_URL=https://locallead-api.onrender.com` |
+
+**Why the root directory matters.** Left empty, Pages builds from the repository
+root: it finds the root `requirements.txt` and runs `pip install` (the engine's
+dependencies, not the frontend's), then `npx` downloads the adapter fresh and
+npm's peer resolution fails with `ERESOLVE` against the current `wrangler`.
+Pointing it at `frontend` fixes both, and `npm run pages:build` uses the adapter
+already in `node_modules` instead of resolving a new tree at build time.
+
+**About the peer dependency.** `frontend/.npmrc` sets `legacy-peer-deps=true`
+because `@cloudflare/next-on-pages@1.13.x` declares `next >=14.3.0 && <=15.5.2`
+and this app is on Next 14.2.35 (the 14.3 line never shipped). The adapter runs
+fine on 14.2 — verified under `wrangler pages dev` — but npm refuses to install
+it otherwise. Both the flag and the adapter go away with a Next 15 migration.
 
 `nodejs_compat` is required, not optional: the generated `_worker.js` imports
 `node:buffer` and `node:async_hooks`, and the Worker throws at runtime without
@@ -97,8 +110,8 @@ After the first deploy, put the Pages URL into Render's `CORS_ORIGINS` and
 
 ```bash
 cd frontend
-NEXT_PUBLIC_API_URL=https://locallead-api.onrender.com npx @cloudflare/next-on-pages@1
-npx wrangler pages deploy .vercel/output/static --project-name locallead
+NEXT_PUBLIC_API_URL=https://locallead-api.onrender.com npm run pages:build
+npx wrangler pages deploy .vercel/output/static --project-name lead-gen-v3
 ```
 
 ## 4. Custom domain
