@@ -7,6 +7,11 @@ import { BarChart3, LayoutDashboard, Menu, Settings, ShieldCheck } from "lucide-
 import { api, clearAuth, ensureSession, getStoredUser } from "@/lib/api";
 import type { User } from "@/types";
 import { Badge } from "@/components/legacy-ui";
+import {
+  ActiveSearchProvider,
+  activeJobLabel,
+  useActiveSearch,
+} from "@/components/active-search-provider";
 
 const NAV = [
   { href: "/dashboard", label: "Search", icon: LayoutDashboard },
@@ -14,7 +19,50 @@ const NAV = [
   { href: "/settings", label: "Settings", icon: Settings },
 ];
 
+/**
+ * Live scraping indicator. Lives in the persistent chrome, so it keeps showing
+ * stage + percentage while the user moves between Search, History and Settings.
+ * The app has a top nav bar rather than a sidebar, so the loader sits in the
+ * nav's right cluster (and as a full row in the mobile menu).
+ */
+function ActiveSearchChip({ full = false }: { full?: boolean }) {
+  const { activeJob } = useActiveSearch();
+  if (!activeJob) return null;
+
+  return (
+    <Link
+      href={`/results/${activeJob.id}`}
+      aria-live="polite"
+      title={`${activeJob.query_raw} — ${activeJobLabel(activeJob)} (${activeJob.progress}%)`}
+      className={`flex min-w-0 items-center gap-2 rounded-full border border-ll-cyan/30 bg-ll-cyan-soft px-3 py-1.5 text-xs text-ll-cyan transition-colors hover:bg-ll-cyan/15 ${
+        full ? "w-full justify-start" : ""
+      }`}
+    >
+      <span
+        className="size-3.5 shrink-0 animate-spin rounded-full border-2 border-ll-cyan border-t-transparent"
+        aria-hidden
+      />
+      <span
+        className={`truncate font-mono ${
+          full ? "max-w-[220px]" : "hidden max-w-[220px] sm:inline"
+        }`}
+      >
+        {activeJobLabel(activeJob)}
+      </span>
+      <span className="shrink-0 font-mono tabular-nums">{activeJob.progress}%</span>
+    </Link>
+  );
+}
+
 export default function AppLayout({ children }: { children: React.ReactNode }) {
+  return (
+    <ActiveSearchProvider>
+      <AppShell>{children}</AppShell>
+    </ActiveSearchProvider>
+  );
+}
+
+function AppShell({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const [user, setUser] = useState<User | null>(null);
   const [menuOpen, setMenuOpen] = useState(false);
@@ -68,13 +116,13 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
             ))}
             {user?.role === "ADMIN" && (
               <Link href="/admin" className="btn-ghost text-muted-foreground hover:text-foreground">
-                <ShieldCheck className="h-4 w-4" />
-                Admin
+                <ShieldCheck className="h-4 w-4" /> Admin
               </Link>
             )}
           </nav>
 
           <div className="ml-auto flex items-center gap-2">
+            <ActiveSearchChip />
             {user && (
               <div className="hidden text-right sm:block">
                 <p className="text-sm font-medium leading-tight">
@@ -97,6 +145,9 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
         </div>
         {menuOpen && (
           <nav className="border-t p-2 md:hidden">
+            <div className="mb-1 px-1">
+              <ActiveSearchChip full />
+            </div>
             {NAV.map((item) => (
               <Link
                 key={item.href}

@@ -19,6 +19,38 @@ interface JobEvent {
 const TERMINAL = new Set(["completed", "failed", "cancelled"]);
 
 /**
+ * A complete Job shell so consumers can render before the first snapshot
+ * arrives. Never cast a partial `{ id }` object to Job — pages read
+ * `progress`, `status` and `progress_stats` on the very first render.
+ */
+function emptyJob(jobId: string): Job {
+  return {
+    id: jobId,
+    query_raw: "",
+    parsed_category: "",
+    parsed_location: "",
+    status: "queued",
+    stage_detail: "",
+    progress: 0,
+    provider: "",
+    max_results: 0,
+    requested_results: 0,
+    created_at: null,
+    started_at: null,
+    finished_at: null,
+    error_message: "",
+    progress_stats: {
+      total: 0,
+      completed: 0,
+      failed: 0,
+      emails_found: 0,
+      phones_found: 0,
+      websites_found: 0,
+    },
+  };
+}
+
+/**
  * Subscribe to the SSE progress stream for a job.
  * Merges live events onto the initial job snapshot and falls back to
  * polling the status endpoint when SSE is unavailable (e.g. some proxies).
@@ -28,48 +60,44 @@ export function useJobStream(jobId: string | null, initial?: Job, retryKey = 0) 
   const [done, setDone] = useState(false);
   /** True when the live SSE fetch-stream failed (polling fallback may engage). */
   const [streamFailed, setStreamFailed] = useState(false);
-  const esRef = useRef<EventSource | null>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   useEffect(() => {
     if (!jobId) return;
     let cancelled = false;
     setDone(false);
-    const defaultStats = {
-      total: 0,
-      completed: 0,
-      failed: 0,
-      emails_found: 0,
-      phones_found: 0,
-      websites_found: 0,
-    };
+    setStreamFailed(false);
 
     // Immediately fetch initial snapshot so UI renders instantly
     import("@/lib/api").then(({ api }) => {
-      api.get<Job>(`/search/${jobId}`).then((snapshot) => {
-        if (!cancelled && snapshot) {
-          setJob((prev) => (prev ? { ...snapshot, ...prev } : snapshot));
-          if (TERMINAL.has(snapshot.status)) setDone(true);
-        }
-      }).catch(() => {});
+      api
+        .get<Job>(`/search/${jobId}`)
+        .then((snapshot) => {
+          if (!cancelled && snapshot) {
+            setJob((prev) => ({ ...snapshot, ...(prev ?? {}) }));
+            if (TERMINAL.has(snapshot.status)) setDone(true);
+          }
+        })
+        .catch(() => {});
     });
 
     const apply = (e: JobEvent) => {
       if (cancelled || e.job_id !== jobId) return;
       setJob((prev) => {
-        const prevStats = prev?.progress_stats ?? defaultStats;
+        const base = prev ?? emptyJob(jobId);
+        const prevStats = base.progress_stats;
         return {
-          ...(prev ?? ({ id: jobId } as Job)),
-          status: (e.status as Job["status"]) ?? prev?.status ?? "queued",
-          stage_detail: e.stage_detail ?? prev?.stage_detail ?? "",
-          progress: e.progress ?? prev?.progress ?? 0,
+          ...base,
+          status: (e.status as Job["status"]) ?? base.status,
+          stage_detail: e.stage_detail ?? base.stage_detail,
+          progress: e.progress ?? base.progress,
           progress_stats: {
-            total: e.total ?? prevStats.total ?? 0,
-            completed: e.completed ?? prevStats.completed ?? 0,
-            failed: e.failed ?? prevStats.failed ?? 0,
-            emails_found: e.emails_found ?? prevStats.emails_found ?? 0,
-            phones_found: e.phones_found ?? prevStats.phones_found ?? 0,
-            websites_found: e.websites_found ?? prevStats.websites_found ?? 0,
+            total: e.total ?? prevStats.total,
+            completed: e.completed ?? prevStats.completed,
+            failed: e.failed ?? prevStats.failed,
+            emails_found: e.emails_found ?? prevStats.emails_found,
+            phones_found: e.phones_found ?? prevStats.phones_found,
+            websites_found: e.websites_found ?? prevStats.websites_found,
           },
         };
       });
@@ -114,7 +142,7 @@ export function useJobStream(jobId: string | null, initial?: Job, retryKey = 0) 
             }
           }
         }
-        setDone(true);
+        if (!cancelled) setDone(true);
       })
       .catch(() => {
         // fallback: poll (interval tracked in a ref so cleanup always runs)
@@ -139,7 +167,6 @@ export function useJobStream(jobId: string | null, initial?: Job, retryKey = 0) 
     return () => {
       cancelled = true;
       controller.abort();
-      esRef.current?.close();
       if (pollRef.current) {
         clearInterval(pollRef.current);
         pollRef.current = null;

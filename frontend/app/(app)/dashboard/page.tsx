@@ -8,6 +8,7 @@ import {
 import { api } from "@/lib/api";
 import type { Job, SearchInterpretResponse } from "@/types";
 import { useJobStream } from "@/hooks/useJobStream";
+import { useActiveSearch } from "@/components/active-search-provider";
 import {
   AnimatedCounter, Badge, Button, Card, ConfidenceBadge, Input, ProviderBadge,
   RadarPulse, Slider, Switch,
@@ -58,6 +59,7 @@ const PROVIDER_OPTIONS: { value: string; label: string }[] = [
 export default function DashboardPage() {
   const router = useRouter();
   const { push } = useToast();
+  const { track } = useActiveSearch();
 
   const [mode, setMode] = useState<"free" | "structured">("free");
   const [freeText, setFreeText] = useState("");
@@ -138,9 +140,12 @@ export default function DashboardPage() {
       };
       const res = await api.post<{ job_id: string; status: string }>("/search", body);
       setJobId(res.job_id);
+      // Stay here: the card below is the live view and the nav loader keeps
+      // running while the user moves around. Navigating away immediately was
+      // what hid the scraping progress on this page.
+      track(res.job_id);
       setInterpretation(null);
-      push("Search started! Opening live results…", "success");
-      router.push(`/results/${res.job_id}`);
+      push("Search started — live progress is in the nav bar.", "success");
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Search failed";
       setSubmitError(msg);

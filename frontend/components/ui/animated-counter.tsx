@@ -13,15 +13,19 @@ interface AnimatedCounterProps {
 /**
  * Counts smoothly from its previous value to `value` whenever it changes —
  * used for live SSE-driven stats so numbers never jump-cut or reflow the layout.
+ *
+ * Non-finite input (undefined stats from a partial payload) is coerced to 0:
+ * feeding NaN into a framer-motion value poisons the animation loop.
  */
 export function AnimatedCounter({ value, className, suffix }: AnimatedCounterProps) {
-  const motionValue = useMotionValue(value);
-  const rounded = useTransform(motionValue, (v) => Math.round(v).toLocaleString());
+  const safeValue = Number.isFinite(value) ? Number(value) : 0;
+  const motionValue = useMotionValue(safeValue);
+  const rounded = useTransform(motionValue, (v) => Math.round(Number.isFinite(v) ? v : 0).toLocaleString());
 
   React.useEffect(() => {
-    const controls = animate(motionValue, value, { duration: 0.6, ease: "easeOut" });
+    const controls = animate(motionValue, safeValue, { duration: 0.6, ease: "easeOut" });
     return controls.stop;
-  }, [value, motionValue]);
+  }, [safeValue, motionValue]);
 
   return (
     <span className={className}>

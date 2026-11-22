@@ -66,11 +66,14 @@ export function Badge({
 }
 
 export function Progress({ value }: { value: number }) {
+  // Guard non-finite input: `width: NaN%` makes the browser drop the style and
+  // React re-render loops with a fresh value each SSE event.
+  const safe = Number.isFinite(value) ? value : 0;
   return (
     <div className="h-2 w-full overflow-hidden rounded-full bg-muted">
       <div
         className="h-full rounded-full bg-primary transition-all duration-500"
-        style={{ width: `${Math.min(100, Math.max(0, value))}%` }}
+        style={{ width: `${Math.min(100, Math.max(0, safe))}%` }}
       />
     </div>
   );

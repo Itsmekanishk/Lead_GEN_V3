@@ -1,5 +1,9 @@
 "use client";
 
+// Dynamic route: Cloudflare Pages (next-on-pages) can only serve it from the
+// edge runtime. Harmless for `next dev` / `next start`.
+export const runtime = "edge";
+
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import {
@@ -266,8 +270,10 @@ export default function ResultsPage() {
         />
       )}
 
-      {/* honest completion status */}
-      {summary && <DataQualityBanner summary={summary} jobStatus={job.status} />}
+      {/* honest completion status — never claim "completed" while still crawling */}
+      {summary && shownJob && ["completed", "failed", "cancelled"].includes(shownJob.status) && (
+        <DataQualityBanner summary={summary} jobStatus={shownJob.status} />
+      )}
 
       {/* filters + view switch */}
       <Card className="p-4">

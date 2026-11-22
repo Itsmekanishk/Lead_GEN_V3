@@ -42,10 +42,15 @@ const apiBase = (() => {
   return "";
 })();
 
+// Cloudflare Pages (next-on-pages) cannot run function-level rewrites, and does
+// not need them: when NEXT_PUBLIC_API_URL is set the browser calls the API
+// directly. Keep the proxy only for same-origin deployments (docker-compose/VPS).
+const canRewrite = !process.env.NEXT_PUBLIC_API_URL;
+
 const nextConfig = {
   reactStrictMode: true,
   async rewrites() {
-    if (!apiBase) return [];
+    if (!apiBase || !canRewrite) return [];
     return [
       { source: "/backend/:path*", destination: `${apiBase}/:path*` },
     ];

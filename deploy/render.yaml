@@ -1,0 +1,38 @@
+# Render blueprint — free API backend for LocalLead.
+#
+# Dashboard → New → Blueprint → pick this repo. Render creates one free web
+# service from deploy/render/Dockerfile; the Neon / Upstash / CORS values are
+# entered once in the dashboard (sync: false means "prompt me").
+#
+# Free plan limits: 512 MB RAM, spins down after 15 minutes idle, ~1 min cold
+# start. Fine for demo/hobby use; see cloudflare/README.md for the $5/mo
+# all-Cloudflare option.
+services:
+  - type: web
+    name: locallead-api
+    runtime: docker
+    plan: free
+    region: singapore
+    dockerfilePath: ./deploy/render/Dockerfile
+    dockerContext: .
+    healthCheckPath: /api/health
+    autoDeploy: true
+    envVars:
+      - key: APP_ENV
+        value: production
+      - key: BUSINESS_PROVIDER
+        value: nominatim
+      - key: PROVIDER_STRICT_CONFIG
+        value: "false"
+      - key: SECRET_KEY
+        generateValue: true
+      - key: DATABASE_URL
+        sync: false # postgresql+psycopg2://…?sslmode=require
+      - key: REDIS_URL
+        sync: false # rediss://default:…@host:6379
+      - key: CORS_ORIGINS
+        sync: false # https://<your-project>.pages.dev,https://yourdomain.com
+      - key: FRONTEND_ORIGIN
+        sync: false # https://<your-project>.pages.dev
+      - key: PDF_STORAGE_PATH
+        value: /srv/data/reports
