@@ -1,0 +1,17 @@
+{
+  "name": "locallead-cloudflare",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Cloudflare Containers deployment for LocalLead (FastAPI + Next.js)",
+  "scripts": {
+    "deploy": "wrangler deploy",
+    "check": "tsc --noEmit",
+    "tail": "wrangler tail",
+    "containers": "wrangler containers list"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20260101.0",
+    "typescript": "^5.6.3",
+    "wrangler": "^4.0.0"
+  }
+}

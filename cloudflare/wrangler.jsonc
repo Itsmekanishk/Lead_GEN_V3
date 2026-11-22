@@ -1,0 +1,52 @@
+{
+  // LocalLead on Cloudflare Containers.
+  // Run every command in this directory: `cd cloudflare && npx wrangler deploy`.
+  // Paths below are resolved relative to this file.
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "locallead",
+  "main": "./worker.ts",
+  "compatibility_date": "2026-11-22",
+  "upload_source_maps": true,
+  "observability": {
+    "enabled": true
+  },
+
+  // Both images are built from the Dockerfiles already in this repo, with the
+  // build context pointing at the service directory they expect.
+  "containers": [
+    {
+      // FastAPI + Alembic (infrastructure/docker/backend.Dockerfile)
+      "class_name": "ApiContainer",
+      "image": "../infrastructure/docker/backend.Dockerfile",
+      "image_build_context": "../backend",
+      "instance_type": "standard-1", // 0.5 vCPU, 4 GiB, 8 GB disk
+      "max_instances": 1
+    },
+    {
+      // Next.js (infrastructure/docker/frontend.Dockerfile)
+      "class_name": "WebContainer",
+      "image": "../infrastructure/docker/frontend.Dockerfile",
+      "image_build_context": "../frontend",
+      "instance_type": "basic", // 0.25 vCPU, 1 GiB, 4 GB disk
+      "max_instances": 1,
+      // Empty NEXT_PUBLIC_API_URL keeps the browser calling /backend/*, which
+      // this Worker routes to the API container (same origin, no CORS).
+      "image_vars": {
+        "NEXT_PUBLIC_API_URL": "",
+        "INTERNAL_API_URL": ""
+      }
+    }
+  ],
+
+  "durable_objects": {
+    "bindings": [
+      { "name": "API", "class_name": "ApiContainer" },
+      { "name": "WEB", "class_name": "WebContainer" }
+    ]
+  },
+
+  "exports": {
+    "ApiContainer": { "type": "durable-object", "storage": "sqlite" },
+    "WebContainer": { "type": "durable-object", "storage": "sqlite" }
+  }
+}
