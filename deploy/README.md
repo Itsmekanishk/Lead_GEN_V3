@@ -93,6 +93,16 @@ and this app is on Next 14.2.35 (the 14.3 line never shipped). The adapter runs
 fine on 14.2 — verified under `wrangler pages dev` — but npm refuses to install
 it otherwise. Both the flag and the adapter go away with a Next 15 migration.
 
+**Why the build log mentions Vercel.** `next-on-pages` does not compile the
+site itself: it downloads the Vercel CLI and runs `vercel build` to produce a
+`.vercel/output` directory (Vercel's Build Output API format), then rewrites the
+edge functions into Cloudflare's `_worker.js` + `_routes.json`. Nothing is
+uploaded to Vercel and no Vercel account is involved — it is used purely as a
+local build-format converter, which is why it warns "Build not running on
+Vercel". `vercel` is pinned to `47.0.4`, the newest version inside the
+adapter's declared range (`>=30.0.0 <=47.0.4`); without the pin `npx` installs
+the latest (66.x) on every build, which is outside that range and slower.
+
 `nodejs_compat` is required, not optional: the generated `_worker.js` imports
 `node:buffer` and `node:async_hooks`, and the Worker throws at runtime without
 the flag. If the dashboard asks instead of reading `frontend/wrangler.toml`, set
