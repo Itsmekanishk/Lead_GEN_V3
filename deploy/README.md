@@ -59,7 +59,17 @@ demo that is acceptable; for always-on, use the Cloudflare Containers path.
 
 ## 3. Frontend on Cloudflare Pages (free)
 
-Pages → **Create application → Pages → Connect to Git** → this repo.
+Dashboard → **Workers & Pages → Create application → Pages → Connect to Git**.
+The wizard opens on **Workers** by default; pick the **Pages** tab, or the
+commands below run from the repo root (no `package.json`, no wrangler config
+there) and the build fails.
+
+> **Status of this toolchain.** `@cloudflare/next-on-pages` is deprecated and
+> archived upstream, and Cloudflare now points new projects at Workers. Workers
+> needs `@opennextjs/cloudflare`, whose current release requires **Next 15.5+** -
+> this app runs Next 14.2.35, so moving to Workers means a framework upgrade, not
+> a config change. Pages keeps working ("Pages will continue to be supported"),
+> and the build here is verified, so this is the free path until that upgrade.
 
 | Setting | Value |
 |---|---|

@@ -362,7 +362,7 @@ Conventions: tests never call third-party sites (local HTTP fixtures + mock prov
 |---|---|---|---|
 | **Docker Compose on a VPS** | VPS cost | Full stack behind nginx with TLS: postgres, redis, api, worker, frontend, nginx | [`docs/deployment.md`](docs/deployment.md) · [`docs/HOSTINGER_DEPLOYMENT.md`](docs/HOSTINGER_DEPLOYMENT.md) |
 | **Cloudflare Workers + Containers** | **$5/mo** (Workers Paid; Containers have no free tier) | Both real Docker images behind one Worker; needs Neon + Upstash | [`cloudflare/README.md`](cloudflare/README.md) |
-| **Cloudflare Pages + Render** | **$0** | Frontend on Pages (edge), API on Render free + Neon + Upstash | [`deploy/README.md`](deploy/README.md) |
+| **Cloudflare Pages + Render** | **$0** | Frontend on Pages (edge), API on Render free + Neon + Upstash. Pages keeps working, though `next-on-pages` is deprecated upstream — a Workers migration needs Next 15.5+ for the current OpenNext adapter | [`deploy/README.md`](deploy/README.md) |
 
 ### Docker Compose (recommended for production)
 
